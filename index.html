@@ -15,44 +15,51 @@
             overflow: hidden;
         }
         #sidebar {
-            width: 320px;
+            width: 340px;
             background-color: #25252b;
             border-right: 2px solid #333;
             display: flex;
             flex-direction: column;
             padding: 20px;
             box-sizing: border-box;
-            gap: 15px;
+            gap: 12px;
             overflow-y: auto;
+            flex-shrink: 0;
         }
         h2 { margin-top: 0; color: #00bcd4; font-size: 22px; }
         .control-group {
             display: flex;
             flex-direction: column;
-            gap: 5px;
+            gap: 4px;
         }
-        label { font-size: 13px; font-weight: bold; color: #aaa; }
+        label { font-size: 12px; font-weight: bold; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px; }
         input, select {
             padding: 8px;
             background: #18181c;
             border: 1px solid #444;
             color: white;
             border-radius: 4px;
+            font-size: 14px;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: #00bcd4;
         }
         .tool-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 8px;
+            gap: 6px;
         }
         button {
-            padding: 10px;
+            padding: 9px;
             background: #333;
             border: 1px solid #555;
             color: white;
             border-radius: 4px;
             cursor: pointer;
             font-weight: bold;
-            transition: 0.2s;
+            font-size: 12px;
+            transition: 0.15s;
         }
         button:hover { background: #444; }
         button.active { background: #00bcd4; color: #000; border-color: #008ba3; }
@@ -68,15 +75,18 @@
             align-items: center;
             background-color: #121215;
             position: relative;
+            overflow: auto;
+            padding: 20px;
         }
         canvas {
-            border: 2px solid #333;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border: 2px solid #444;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.6);
             background: #87ceeb;
             cursor: crosshair;
+            display: block;
         }
         #instructions {
-            font-size: 12px;
+            font-size: 11px;
             background: #18181c;
             padding: 10px;
             border-radius: 4px;
@@ -86,15 +96,16 @@
         }
         textarea {
             width: 100%;
-            height: 120px;
+            height: 110px;
             background: #121215;
             color: #00e676;
             border: 1px solid #444;
             font-family: monospace;
-            font-size: 11px;
+            font-size: 10px;
             resize: none;
-            padding: 5px;
+            padding: 6px;
             box-sizing: border-box;
+            border-radius: 4px;
         }
     </style>
 </head>
@@ -104,25 +115,25 @@
         <h2>Cirkle Map Editor</h2>
         
         <div id="instructions">
-            <strong>Controls:</strong><br>
-            • Click & drag on canvas to draw items.<br>
-            • Select tools below to change object type.
+            <strong>How to use:</strong><br>
+            • <strong>Platforms / Spikes / Goal:</strong> Click & drag on canvas to draw rectangular areas.<br>
+            • <strong>Spawn / Power-ups:</strong> Single click on canvas to place them instantly.
         </div>
 
         <div class="control-group">
             <label>Map ID (Filename)</label>
-            <input type="text" id="mapId" value="custom_map_01">
+            <input type="text" id="mapId" value="custom_map_01" oninput="updateMetadata()">
         </div>
 
         <div class="control-group">
             <label>Map Display Name</label>
-            <input type="text" id="mapName" value="My Custom Mod Map">
+            <input type="text" id="mapName" value="My Custom Mod Map" oninput="updateMetadata()">
         </div>
 
         <div class="control-group">
             <label>Biome Theme</label>
             <select id="mapBiome" onchange="updateCanvasBackground()">
-                <option value="Normal">Normal (Sky Blue)</option>
+                <option value="Normal">Normal (Sky Blue / Red Spikes)</option>
                 <option value="Snowy">Snowy (Ice / Icicles)</option>
             </select>
         </div>
@@ -142,7 +153,7 @@
         <button class="danger-btn" onclick="clearMap()">Clear All Elements</button>
 
         <div class="control-group">
-            <label>Generated JSON Output</label>
+            <label>Live JSON Output</label>
             <textarea id="jsonOutput" readonly></textarea>
         </div>
 
@@ -160,8 +171,8 @@
         let currentTool = 'wall';
         let isDrawing = false;
         let startX = 0, startY = 0;
+        let currentMouseX = 0, currentMouseY = 0;
 
-        // Map Data Structure
         let mapData = {
             id: "custom_map_01",
             name: "My Custom Mod Map",
@@ -169,7 +180,7 @@
             startPosition: { x: 100, y: 600 },
             goalZone: { x: 900, y: 100, width: 80, height: 80 },
             walls: [
-                { x: 0, y: 660, width: 1000, height: 40 } // Default Ground
+                { x: 0, y: 660, width: 1000, height: 40 }
             ],
             spikes: [],
             powerUps: []
@@ -181,16 +192,36 @@
             document.getElementById('btn-' + tool).classList.add('active');
         }
 
+        function updateMetadata() {
+            mapData.id = document.getElementById('mapId').value.trim() || 'custom_map';
+            mapData.name = document.getElementById('mapName').value.trim() || 'Unnamed Map';
+            updateJsonPreview();
+        }
+
         function updateCanvasBackground() {
             mapData.biome = document.getElementById('mapBiome').value;
             redraw();
         }
 
-        canvas.addEventListener('mousedown', (e) => {
+        function getCanvasCoordinates(e) {
             const rect = canvas.getBoundingClientRect();
-            startX = e.clientX - rect.left;
-            startY = e.clientY - rect.top;
+            // Account for CSS scaling if canvas size differs from internal resolution
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            return {
+                x: (e.clientX - rect.left) * scaleX,
+                y: (e.clientY - rect.top) * scaleY
+            };
+        }
 
+        canvas.addEventListener('mousedown', (e) => {
+            const coords = getCanvasCoordinates(e);
+            startX = coords.x;
+            startY = coords.y;
+            currentMouseX = coords.x;
+            currentMouseY = coords.y;
+
+            // Instant placement tools (single click)
             if (currentTool === 'start') {
                 mapData.startPosition = { x: Math.round(startX), y: Math.round(startY) };
                 redraw();
@@ -201,49 +232,33 @@
         });
 
         canvas.addEventListener('mousemove', (e) => {
+            const coords = getCanvasCoordinates(e);
+            currentMouseX = coords.x;
+            currentMouseY = coords.y;
+
             if (!isDrawing) return;
-            const rect = canvas.getBoundingClientRect();
-            let currentX = e.clientX - rect.left;
-            let currentY = e.clientY - rect.top;
             redraw();
-
-            // Preview active rectangle shape being drawn
-            let x = Math.min(startX, currentX);
-            let y = Math.min(startY, currentY);
-            let w = Math.abs(currentX - startX);
-            let h = Math.abs(currentY - startY);
-
-            ctx.strokeStyle = '#00bcd4';
-            ctx.lineWidth = 2;
-            ctx.setLineDash([4, 4]);
-            
-            if (currentTool === 'jumpboost' || currentTool === 'drp23') {
-                ctx.strokeRect(startX - 12, startY - 12, 24, 24);
-            } else {
-                ctx.strokeRect(x, y, w, h);
-            }
-            ctx.setLineDash([]);
         });
 
         canvas.addEventListener('mouseup', (e) => {
             if (!isDrawing) return;
             isDrawing = false;
 
-            const rect = canvas.getBoundingClientRect();
-            let endX = e.clientX - rect.left;
-            let endY = e.clientY - rect.top;
+            const coords = getCanvasCoordinates(e);
+            let endX = coords.x;
+            let endY = coords.y;
 
             let x = Math.min(startX, endX);
             let y = Math.min(startY, endY);
-            let w = Math.max(10, Math.abs(endX - startX));
-            let h = Math.max(10, Math.abs(endY - startY));
+            let w = Math.max(12, Math.abs(endX - startX));
+            let h = Math.max(12, Math.abs(endY - startY));
 
             if (currentTool === 'wall') {
                 mapData.walls.push({ x: Math.round(x), y: Math.round(y), width: Math.round(w), height: Math.round(h) });
             } else if (currentTool === 'spike') {
                 mapData.spikes.push({ x: Math.round(x), y: Math.round(y), width: Math.round(w), height: Math.round(h) });
             } else if (currentTool === 'goal') {
-                mapData.goalZone = { x: Math.round(x), y: Math.round(y), width: Math.round(w), height: Math.round(h) });
+                mapData.goalZone = { x: Math.round(x), y: Math.round(y), width: Math.round(w), height: Math.round(h) };
             } else if (currentTool === 'jumpboost') {
                 mapData.powerUps.push({ type: 'JumpBoost', x: Math.round(startX - 12), y: Math.round(startY - 12), width: 24, height: 24 });
             } else if (currentTool === 'drp23') {
@@ -251,6 +266,13 @@
             }
 
             redraw();
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            if (isDrawing) {
+                isDrawing = false;
+                redraw();
+            }
         });
 
         function clearMap() {
@@ -262,12 +284,12 @@
             }
         }
 
-        function redraw() {
-            // Update metadata inputs
-            mapData.id = document.getElementById('mapId').value || 'custom_map';
-            mapData.name = document.getElementById('mapName').value || 'Unnamed Map';
+        function updateJsonPreview() {
+            document.getElementById('jsonOutput').value = JSON.stringify(mapData, null, 2);
+        }
 
-            // Background
+        function redraw() {
+            // Background color based on biome
             if (mapData.biome === 'Snowy') {
                 ctx.fillStyle = '#c8dcf5';
             } else {
@@ -276,31 +298,39 @@
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
             // 1. Goal Zone
-            ctx.fillStyle = 'rgba(40, 220, 80, 0.4)';
+            ctx.fillStyle = 'rgba(40, 220, 80, 0.45)';
             ctx.fillRect(mapData.goalZone.x, mapData.goalZone.y, mapData.goalZone.width, mapData.goalZone.height);
             ctx.strokeStyle = '#00cc44';
             ctx.lineWidth = 2;
             ctx.strokeRect(mapData.goalZone.x, mapData.goalZone.y, mapData.goalZone.width, mapData.goalZone.height);
-            ctx.fillStyle = '#fff';
-            ctx.font = '12px Segoe UI';
-            ctx.fillText('GOAL', mapData.goalZone.x + 6, mapData.goalZone.y + 20);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 12px Segoe UI';
+            ctx.fillText('GOAL ZONE', mapData.goalZone.x + 8, mapData.goalZone.y + 20);
 
-            // 2. Walls / Platforms
+            // 2. Platforms (Walls)
             mapData.walls.forEach(w => {
                 ctx.fillStyle = (mapData.biome === 'Snowy') ? '#d2e6f5' : '#50505a';
                 ctx.fillRect(w.x, w.y, w.width, w.height);
-                ctx.strokeStyle = '#333';
+                ctx.strokeStyle = '#222';
+                ctx.lineWidth = 1.5;
                 ctx.strokeRect(w.x, w.y, w.width, w.height);
 
                 if (mapData.biome === 'Snowy') {
                     ctx.fillStyle = '#ffffff';
-                    ctx.fillRect(w.x, w.y, w.width, 6); // Snow cap
+                    ctx.fillRect(w.x, w.y, w.width, 6); // Snowy cap
                 }
             });
 
-            // 3. Spikes / Icicles
+            // 3. Spikes or Icicles
+            if (mapData.biome === 'Snowy') {
+                ctx.fillStyle = '#dcf5ff';
+                ctx.strokeStyle = '#5a92a5';
+            } else {
+                ctx.fillStyle = '#dc143c';
+                ctx.strokeStyle = '#8b0000';
+            }
+
             mapData.spikes.forEach(s => {
-                ctx.fillStyle = (mapData.biome === 'Snowy') ? '#dcf5ff' : '#dc143c';
                 let toothWidth = mapData.biome === 'Snowy' ? 16 : 20;
                 let numTeeth = Math.max(1, Math.floor(s.width / toothWidth));
                 let actualToothWidth = s.width / numTeeth;
@@ -316,7 +346,17 @@
                     ctx.lineTo(rightX, s.y + s.height);
                     ctx.closePath();
                     ctx.fill();
+                    ctx.lineWidth = 1;
                     ctx.stroke();
+
+                    if (mapData.biome === 'Snowy') {
+                        ctx.strokeStyle = '#ffffff';
+                        ctx.beginPath();
+                        ctx.moveTo(midX, s.y + 2);
+                        ctx.lineTo(midX, s.y + s.height - 4);
+                        ctx.stroke();
+                        ctx.strokeStyle = '#5a92a5';
+                    }
                 }
             });
 
@@ -327,35 +367,56 @@
                     ctx.beginPath();
                     ctx.arc(p.x + 12, p.y + 12, 12, 0, Math.PI * 2);
                     ctx.fill();
+                    ctx.strokeStyle = '#008b8b';
+                    ctx.lineWidth = 2;
                     ctx.stroke();
-                    ctx.fillStyle = '#000';
+                    ctx.fillStyle = '#000000';
                     ctx.font = 'bold 10px Arial';
                     ctx.fillText('JB', p.x + 4, p.y + 16);
                 } else if (p.type === 'DrP23') {
                     ctx.fillStyle = '#800000';
                     ctx.fillRect(p.x, p.y, 24, 24);
-                    ctx.strokeStyle = '#fff';
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 2;
                     ctx.strokeRect(p.x, p.y, 24, 24);
-                    ctx.fillStyle = '#fff';
+                    ctx.fillStyle = '#ffffff';
                     ctx.font = 'bold 9px Arial';
                     ctx.fillText('P23', p.x + 2, p.y + 15);
                 }
             });
 
-            // 5. Start Position Marker
+            // 5. Spawn Position Marker
             ctx.fillStyle = '#ffcc00';
             ctx.beginPath();
             ctx.arc(mapData.startPosition.x, mapData.startPosition.y, 14, 0, Math.PI * 2);
             ctx.fill();
-            ctx.strokeStyle = '#000';
+            ctx.strokeStyle = '#000000';
             ctx.lineWidth = 2;
             ctx.stroke();
-            ctx.fillStyle = '#000';
+            ctx.fillStyle = '#000000';
             ctx.font = 'bold 10px Arial';
             ctx.fillText('START', mapData.startPosition.x - 16, mapData.startPosition.y - 18);
 
-            // Generate JSON preview
-            document.getElementById('jsonOutput').value = JSON.stringify(mapData, null, 2);
+            // 6. Active Drawing Preview Box
+            if (isDrawing && currentTool !== 'start') {
+                let x = Math.min(startX, currentMouseX);
+                let y = Math.min(startY, currentMouseY);
+                let w = Math.abs(currentMouseX - startX);
+                let h = Math.abs(currentMouseY - startY);
+
+                ctx.strokeStyle = '#00bcd4';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([4, 4]);
+
+                if (currentTool === 'jumpboost' || currentTool === 'drp23') {
+                    ctx.strokeRect(startX - 12, startY - 12, 24, 24);
+                } else {
+                    ctx.strokeRect(x, y, w, h);
+                }
+                ctx.setLineDash([]);
+            }
+
+            updateJsonPreview();
         }
 
         function exportJsonFile() {
@@ -368,7 +429,7 @@
             downloadAnchor.remove();
         }
 
-        // Initial render
+        // Initial render on load
         redraw();
     </script>
 </body>
